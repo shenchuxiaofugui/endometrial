@@ -3,14 +3,19 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
+
 # features = ["T1CE_dilation_6_log-sigma-3-0-mm-3D_firstorder_Variance", "T1CE_dilation_6_log-sigma-3-0-mm-3D_firstorder_MeanAbsoluteDeviation", "T1CE_dilation_6_log-sigma-5-0-mm-3D_firstorder_10Percentile"]
 # suoxie = ["LoG-3 Var", "LoG-3 MAD", "LoG-5 10%"]
-features = ["T1CE_dilation_9_original_gldm_DependenceEntropy", "T1CE_dilation_9_log-sigma-1-0-mm-3D_firstorder_Variance", "T1CE_resampled.nii_log-sigma-5-0-mm-3D_glszm_HighGrayLevelZoneEmphasis"]
-suoxie = ["Ori DE", "LoG-1 Var", "LoG-5 HGZE"]
+features = ["CA125"]
+suoxie = ["CA125"]
 #df = pd.read_excel(r"\\mega\syli\dataset\EC_all\model\train_features.xlsx")
-df1 = pd.read_csv(r"C:\Users\handsome\Desktop\瘤周\result\LNM\T1CE\merge\selected_train_data.csv")
-df2 = pd.read_csv(r"C:\Users\handsome\Desktop\瘤周\result\LNM\T1CE\merge\selected_test_data.csv")
-df = pd.concat((df1, df2), axis=0)
+# df1 = pd.read_csv(r"C:\Users\handsome\Desktop\瘤周\result\LNM\T1CE\merge\selected_train_data.csv")
+# df2 = pd.read_csv(r"C:\Users\handsome\Desktop\瘤周\result\LNM\T1CE\merge\selected_test_data.csv")
+# df = pd.concat((df1, df2), axis=0)
+df = pd.read_excel("/homes/syli/dataset/zahuo/data.xlsx")
+olddf = pd.read_csv("/homes/syli/dataset/zahuo/new_data.csv")
+for feature in features:
+    df[feature] = (olddf[feature] - olddf[feature].mean()) / olddf[feature].std()
 # fig = px.violin(df, x="Category", y="T2", color="Category") #, x="features", y="values"
 #fig = px.violin(df, x=list(df), y=list(df),color=list(df))
 fig = go.Figure()

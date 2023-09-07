@@ -7,13 +7,14 @@ from scipy.stats import pearsonr
 
 
 class DimensionReductionByPCC(object):
-    def __init__(self, name='PCC', model=None, number=0, is_transform=False, threshold=0.9):
+    def __init__(self, name='PCC', model=None, number=0, is_transform=False, threshold=0.9, task_num=1):
         self._name = name
         self.__model = model
         self.__remained_number = number
         self.__is_transform = is_transform
         self.__threshold = threshold
         self.__selected_index = []
+        self.task_num = task_num
 
     @staticmethod
     def pcc_similarity(data1, data2):
@@ -43,16 +44,22 @@ class DimensionReductionByPCC(object):
         self.__selected_index = sorted(self.__selected_index)
 
     def run(self, dataframe, store_folder=''):
-        origin_data = np.array(dataframe.values[:, 1:])
-        data = np.array(dataframe.values[:, 1:])
+        origin_data = np.array(dataframe.values[:, self.task_num:])
+        data = dataframe.values[:, self.task_num:]
         label = np.array(dataframe['label'].tolist())
-        feature_name = dataframe.columns.tolist()[1:]
+        features = list(dataframe)
+        feature_name = features[self.task_num:]
         self.get_selected_feature_by_pcc(data, label)
 
         new_data = origin_data[:, self.__selected_index]
         new_feature_name = [feature_name[t] for t in self.__selected_index]
-        new_feature_name.insert(0, 'label')
-        new_data = np.concatenate((label[..., np.newaxis], new_data), axis=1)
+        if self.task_num == 1:
+            new_feature_name.insert(0, 'label')
+            labels = label[..., np.newaxis]
+        else:
+            new_feature_name = features[:self.task_num] + new_feature_name
+            labels = dataframe.values[:, :self.task_num]
+        new_data = np.concatenate((labels, new_data), axis=1)
         new_dataframe = pd.DataFrame(data=new_data, index=dataframe.index, columns=new_feature_name)
 
         if store_folder and os.path.isdir(store_folder):

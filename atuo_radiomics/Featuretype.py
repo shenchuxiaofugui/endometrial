@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 
-def split_feature_type(total_dataframe, store_folder=''):
+def split_feature_type_1(total_dataframe, store_folder=''):
     """
     :param total_dataframe: 包含所有特征的df
     :return: 形状/一阶/纹理各自的df
@@ -52,8 +52,8 @@ def split_feature_type(total_dataframe, store_folder=''):
     return shape_dataframe, firstorder_dataframe, texture_dataframe
 
 
-def split_image_type(total_df, image_types=['original', 'log-sigma', 'wave'], store_folder='', split="train"):
-    label_df = total_df.iloc[:, :1]
+def split_image_type(total_df, image_types=['original', 'log-sigma', 'wave'], task_num=1, store_folder='', split="train"):
+    label_df = total_df.iloc[:, :task_num]
     all_image_df = []
     for image in image_types:
         image_df = total_df.filter(regex=f'{image}')
@@ -62,4 +62,21 @@ def split_image_type(total_df, image_types=['original', 'log-sigma', 'wave'], st
             os.makedirs(store_folder+f'/{image}', exist_ok=True)
             image_df.to_csv(os.path.join(store_folder, image, f'/{split}_features.csv'))
         all_image_df.append(image_df)
+    return all_image_df
+
+
+def split_feature_type(total_df, task_num=1, store_folder='', split="train"):
+    label_df = total_df.iloc[:, :task_num]
+    all_image_df = []
+    for image in ['shape', 'firstorder']:
+        image_df = total_df.filter(regex=f'{image}')
+        image_df = label_df.join(image_df)
+        if store_folder != '':
+            os.makedirs(store_folder+f'/{image}', exist_ok=True)
+            image_df.to_csv(os.path.join(store_folder, image, f'/{split}_features.csv'))
+        all_image_df.append(image_df)
+    texture_feature = [i for i in list(total_df)[task_num:] if ("shape" not in i and "firstorder" not in i)]
+    image_df = total_df[texture_feature]
+    image_df = label_df.join(image_df)
+    all_image_df.append(image_df)
     return all_image_df

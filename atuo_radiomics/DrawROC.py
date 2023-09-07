@@ -8,7 +8,7 @@ import os
 color_list = sns.color_palette('deep') + sns.color_palette('bright')
 
 
-def draw_roc_list(pred_list, label_list, name_list='', store_path='', is_show=True, fig=plt.figure()):
+def draw_roc_list(pred_list, label_list, name_list='', store_path='', is_show=True, fig=plt.figure(), feature="label"):
     # To Draw the ROC curve.
     # :param pred_list: The list of the prediction.
     # :param label_list: The list of the label.
@@ -16,9 +16,9 @@ def draw_roc_list(pred_list, label_list, name_list='', store_path='', is_show=Tr
     # :param store_path: The store path. Support jpg and eps.
     # :return: None
     if not isinstance(pred_list, list):
-        pred_list = [pred_list]
+        pred_list = [pred_list[:,i] for i in range(pred_list.shape[1])]
     if not isinstance(label_list, list):
-        label_list = [label_list]
+        label_list = [label_list[:,i] for i in range(label_list.shape[1])]
     if not isinstance(name_list, list):
         name_list = [name_list]
 
@@ -84,7 +84,7 @@ def draw_roc_list(pred_list, label_list, name_list='', store_path='', is_show=Tr
         if not os.path.exists(store_path):
             os.makedirs(store_path)
         fig.set_tight_layout(True)
-        fig.savefig(os.path.join(store_path, 'ROC.jpg'), dpi=300, format='jpeg')
+        fig.savefig(os.path.join(store_path, f'{feature}_ROC.jpg'), dpi=300, format='jpeg')
 
     if is_show:
         plt.show()

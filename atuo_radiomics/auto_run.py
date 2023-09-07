@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 import os
-from atuo_radiomics.Classifier import LR, SVM
-from atuo_radiomics.DataBalance import UpSampling
 from atuo_radiomics.DimensionReductionByPCC import DimensionReductionByPCC
 from atuo_radiomics.DataSplit import set_new_dataframe
 from atuo_radiomics.DrawROC import draw_roc_list
@@ -16,7 +14,7 @@ from time import time
 from multiprocessing import Process
 import json
 from atuo_radiomics import split_by_p
-import joblib
+from imblearn.over_sampling import SMOTE, RandomOverSampler
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 # def main(csv_path):
@@ -36,7 +34,7 @@ def split_and_merge(feature_root, modals, clinical_path, store_path):
 
 
 class Radiomics():
-    def __init__(self, selectors, classifiers, savepath="", max_feature_num=10, random_seed=1):
+    def __init__(self, selectors, classifiers, savepath="", max_feature_num=10, task_num=1, random_seed=1):
         self.max_feature_num = max_feature_num
         self.selectors = selectors
         self.classifiers = classifiers
@@ -45,54 +43,54 @@ class Radiomics():
         self.train_label = None
         self.test_label = None
         self.random_seed = random_seed
-        self._up = UpSampling()
+        self._up = RandomOverSampler()  # 上采就整个一起上采
         self.savepath = savepath
         self.combine_features = ["label"]
         self.image_types = ['original', 'log-sigma']
+        self.tasks = task_num
 
     def load_csv(self, train_path, test_path, pcc_zscore=True):
         train_data = pd.read_csv(train_path, index_col=0)
         test_data = pd.read_csv(test_path, index_col=0)
         if pcc_zscore:
-            pcc = DimensionReductionByPCC(threshold=0.99)
+            pcc = DimensionReductionByPCC(threshold=0.99, task_num=self.tasks)
             train_data = pcc.run(train_data)
             train_data.to_csv(os.path.join(self.savepath, "train_pcc_result.csv"))
             test_data = test_data[list(train_data)]
-            X = train_data.iloc[:,1:]
+            X = train_data.iloc[:,self.tasks:]
             mean = X.mean()
             std = X.std()
-            train_data.iloc[:,1:] = (X-mean)/ std
-            test_data.iloc[:, 1:] = (test_data.iloc[:, 1:]-mean)/std
+            train_data.iloc[:, self.tasks:] = (X-mean)/ std
+            test_data.iloc[:, self.tasks:] = (test_data.iloc[:, self.tasks:]-mean)/std
             ms = {"mean": mean, "std":std}
             mean_std = pd.DataFrame(ms).T
             mean_std.to_csv(os.path.join(self.savepath, "mean_std.csv"))
+        train_data["label"] = train_data["label"].astype(int)
         self.train_data = train_data
         self.test_data = test_data
-        self.train_label = self.train_data["label"].values
-        self.test_label = self.test_data["label"].values
+        self.y_names = list(self.train_data)[:self.tasks]
         print("数据加载完毕")
 
-    def save_prediction(self, data_df, model, predict_store_path, key, cutoff=None):
+    def _calculate_metric(self, data_df, model, key, feature, cutoff=None):
         #这个用来预测和保存预测结果，返回指标的字典
-        label = data_df["label"].values.astype(int)
-        predict_columns = ['label', 'Pred']
-        prediction = model.predict(data_df.values[:, 1:])
-        new_data = np.concatenate((label[:, np.newaxis], prediction[:, np.newaxis]), axis=1)
-        predict_df = pd.DataFrame(data=new_data, index=data_df.index, columns=predict_columns)
-        predict_df.to_csv(predict_store_path + f"/{key}_prediction.csv")
-        metrics = EstimatePrediction(prediction, label, key, cutoff)
-        return metrics, prediction
+        label = data_df[feature].values.astype(int)
+        prediction = model.predict(data_df.iloc[:, self.tasks:])
+        # new_data = np.concatenate((label[:, np.newaxis], prediction[:, np.newaxis]), axis=1)
+        # predict_df = pd.DataFrame(data=new_data, index=data_df.index, columns=predict_columns)
+        # predict_df.to_csv(predict_store_path + f"/{key}_prediction.csv")
+        metrics = EstimatePrediction(prediction[feature+"_pred"], label, key, cutoff)
+        return metrics, prediction[feature+"_pred"]
 
     def single_image_type(self, image_type, train_df, test_df):
         feature_types = ['firstorder', 'texture', 'shape']
         print("*" * 10 + image_type + "*" * 10)
         store_path = os.path.join(self.savepath, image_type)
         os.makedirs(store_path, exist_ok=True)
-        train_shape_df, train_first_df, train_texture_df = split_feature_type(train_df)
-        test_shape_df, test_first_df, test_texture_df = split_feature_type(test_df)
+        train_shape_df, train_first_df, train_texture_df = split_feature_type(train_df, task_num=self.tasks)
+        test_shape_df, test_first_df, test_texture_df = split_feature_type(test_df, task_num=self.tasks)
         total_train = [train_first_df, train_texture_df, train_shape_df]
         total_test = [test_first_df, test_texture_df, test_shape_df]
-        candidate_feature = ['label']
+        candidate_feature = deepcopy(self.y_names)
         if image_type == "original":
             j = 3
         else:
@@ -104,12 +102,12 @@ class Radiomics():
             temp_test = total_test[i]
             temp_store_path = os.path.join(store_path, feature_type)
             os.makedirs(temp_store_path, exist_ok=True)
-            sub_select_features, max_val_AUC = self.predict_save(temp_train, temp_test, temp_store_path, True)
+            sub_select_features, max_val_AUC = self.predict_save(temp_train, temp_test, temp_store_path, True) #到这了
             if sub_select_features is not None:
                 print(
-                    f'        best {feature_type} model val AUC {max_val_AUC} feature num {len(sub_select_features)}')
+                    f'best {feature_type} model val AUC {max_val_AUC} feature num {len(sub_select_features)}')
                 candidate_feature.extend(sub_select_features)
-        print(f'        there are {len(candidate_feature) - 1} feature num for final radiomics')
+        print(f'there are {len(candidate_feature) - 1} feature num for final radiomics')
         train_df = train_df[candidate_feature]
         test_df = test_df[candidate_feature]
         self.predict_save(train_df, test_df, store_path, True)
@@ -128,8 +126,8 @@ class Radiomics():
             else:
                 combine_path += f"+{image_type}"
                 os.makedirs(combine_path, exist_ok=True)
-                train_df = pd.read_csv(train_df_path, index_col=0).iloc[:, 1:]
-                test_df = pd.read_csv(test_df_path, index_col=0).iloc[:, 1:]
+                train_df = pd.read_csv(train_df_path, index_col=0).iloc[:, self.tasks:]
+                test_df = pd.read_csv(test_df_path, index_col=0).iloc[:, self.tasks:]
                 combine_train_df = pd.merge(combine_train_df, train_df, left_index=True, right_index=True,
                                     validate="one_to_one")  # , validate="one_to_one"
                 combine_test_df = pd.merge(combine_test_df, test_df, left_index=True, right_index=True, validate="one_to_one")
@@ -145,8 +143,8 @@ class Radiomics():
     def run(self):
         #这个是全部的流程
         start = time()
-        train_image_dfs = split_image_type(self.train_data)
-        test_image_dfs = split_image_type(self.test_data)
+        train_image_dfs = split_image_type(self.train_data, task_num=self.tasks)
+        test_image_dfs = split_image_type(self.test_data, task_num=self.tasks)
         process_list = []
         #单图像
         for image_type, train_df, test_df in zip(self.image_types, train_image_dfs, test_image_dfs):
@@ -161,6 +159,21 @@ class Radiomics():
         end = time()
         print(f"spend {(end - start) / 3600} hours")
 
+
+    def _data_balance(self, dataframe):
+        cols = [i for i in dataframe.columns if i != "label"]
+        data = dataframe[cols].values
+        label = dataframe['label'].values.astype(int)
+        feature_name = dataframe.columns.tolist()
+
+        data_resampled, label_resampled = self._up.fit_resample(data, label)
+
+        new_case_name = ['Balance' + str(index) for index in range(data_resampled.shape[0])]
+        new_data = np.concatenate((label_resampled[..., np.newaxis], data_resampled), axis=1)
+        # np.newaxis插入新的维度方便两个拼接
+        new_dataframe = pd.DataFrame(data=new_data, index=new_case_name, columns=feature_name)
+        return new_dataframe
+
     def cross_validation(self, train_df, test_df=None, onese=True, save_path=""): #, save_path=False
         # 这个用来跑子模型
         cv = StratifiedKFold(shuffle=True, random_state=self.random_seed * 10)
@@ -172,42 +185,49 @@ class Radiomics():
                 for k in range(self.max_feature_num):
                     if k + 1 > (len(list(train_df)) - 1):
                         break
-                    selector = selection(n_features_to_select=k + 1)
+
+                    # 拆分出相应的特征
+                    selector = selection(n_features_to_select=k + 1, task_num=self.tasks)
                     selected_train_df = selector.run(train_df)
                     fold5_auc = []
-                    train_info = pd.DataFrame(columns=["label", "Pred", "group"])
-                    val_info = pd.DataFrame(columns=["label", "Pred", "group"])
-                    for l, (train_index, val_index) in enumerate(cv.split(train_df.values[:, 1:], train_df['label'].values)):
+                    info_features = self.y_names + [f"{i}_pred" for i in self.y_names] + ["group"]
+                    train_info = pd.DataFrame(columns=info_features)
+                    val_info = pd.DataFrame(columns=info_features)
+                    for l, (train_index, val_index) in enumerate(cv.split(train_df.values[:, self.tasks:], train_df['label'].values)):
+                        # 根据index拆分数据表
                         real_index = selected_train_df.index
                         cv_train_df = set_new_dataframe(selected_train_df, real_index[train_index])
                         cv_val_df = set_new_dataframe(selected_train_df, real_index[val_index])
-                        upsampling_cv_train_df = self._up.run(cv_train_df)
+                        # 上采
+                        upsampling_cv_train_df = self._data_balance(cv_train_df)
+                        model = modeling(upsampling_cv_train_df, tasks=self.tasks)
 
-                        model = modeling(upsampling_cv_train_df)
-
-                        cv_train_predict = model.predict(cv_train_df.values[:, 1:])
-                        cv_val_predict = model.predict(cv_val_df.values[:, 1:])
+                        cv_train_predict = model.predict(cv_train_df.iloc[:, self.tasks:])
+                        cv_val_predict = model.predict(cv_val_df.iloc[:, self.tasks:])
 
                         cv_train_df["group"] = l + 1
                         cv_val_df["group"] = l + 1
-                        cv_train_df["Pred"] = cv_train_predict
-                        cv_val_df["Pred"] = cv_val_predict
-                        train_info = pd.concat([train_info, cv_train_df[["label", "Pred", "group"]]])
-                        val_info = pd.concat([val_info, cv_val_df[["label", "Pred", "group"]]])
+                        
+   
+                        for task_name, values in cv_train_predict.items():
+                            cv_train_df[task_name] = values
+                        for task_name, values in cv_val_predict.items():
+                            cv_val_df[task_name] = values
 
-                        cv_train_label = cv_train_df['label'].tolist()
-                        cv_val_label = cv_val_df['label'].tolist()
-                        label = [cv_train_label, cv_val_label]
-                        name = ['cv_train', 'cv_val']
-                        pred = [cv_train_predict, cv_val_predict]
-                        auc, ci_lower_list, ci_upper_list = draw_roc_list(pred, label, name, is_show=False)
-                        fold5_auc.append(auc[1])  # 这里为啥要加auc[1]
 
-                    mean_cv_val_auc = np.array(fold5_auc).mean()
-                    # cv_aucs.append(mean_cv_val_auc)
+                        train_info = pd.concat([train_info, cv_train_df[info_features]])
+                        val_info = pd.concat([val_info, cv_val_df[info_features]])
+
+                        pred = cv_val_df[[f"{i}_pred" for i in self.y_names]].values
+                        label = cv_val_df[self.y_names].values
+                        y_names = deepcopy(self.y_names)
+                        aucs, _, _ = draw_roc_list(pred, label, y_names, is_show=False)
+                        fold5_auc.append(sum(aucs) / len(aucs))
+
+                    mean_cv_val_auc = sum(fold5_auc) / len(fold5_auc)
                     if mean_cv_val_auc > max_val_AUC and mean_cv_val_auc > 0.6:
                         max_val_AUC = mean_cv_val_auc
-                        selected_features = list(selected_train_df)[1:]
+                        selected_features = list(selected_train_df)[self.tasks:]
                         best_classifier = modeling
                         best_cv_selector = selector.get_name()
                         best_cv_train_info = train_info
@@ -216,19 +236,19 @@ class Radiomics():
                         selected_test_df = test_df[list(selected_train_df)]
                         store_path = os.path.join(save_path, f"{selector.get_name()}_{k+1}", model.get_name())
                         os.makedirs(store_path, exist_ok=True)
-                        upsampling_train_df = self._up.run(selected_train_df)
-                        model = modeling(upsampling_train_df)
+                        upsampling_train_df = self._data_balance(selected_train_df)
+                        model = modeling(upsampling_train_df, tasks = self.tasks)
                         self._save_info(selected_train_df, selected_test_df, train_info, val_info, model, store_path)
                 # if onese:
                 #     feat  明天写明天写
 
         return selected_features, max_val_AUC, best_classifier, best_cv_selector, best_cv_train_info, best_cv_val_info
 
-    def predict_save(self, train_df, test_df, store_path, save_median_results):
+    def predict_save(self, train_df, test_df, store_path, save_median_results=True):
         #这个用来跑总模型和保存结果
-        if os.path.exists(store_path+"/best_model"):
-            feature_df = pd.read_csv(store_path+"/best_model/selected_train_data.csv", index_col=0)
-            return list(feature_df), "lazy"
+        # if os.path.exists(store_path+"/best_model"):
+        #     feature_df = pd.read_csv(store_path+"/best_model/selected_train_data.csv", index_col=0)
+        #     return list(feature_df), "lazy"
         pipline_info = {}
         train_df.to_csv(os.path.join(store_path, "train_data.csv"))
         test_df.to_csv(os.path.join(store_path, "test_data.csv"))
@@ -244,32 +264,32 @@ class Radiomics():
         if len(select_features) == 0:
             return None, None
         select_results = deepcopy(select_features)
-        select_features.insert(0, "label")
+        select_features = self.y_names + select_features
         selected_train_df = train_df[select_features]
         selected_test_df = test_df[select_features]
-
-        upsampling_train_df = self._up.run(selected_train_df)
-        model = best_classifier(upsampling_train_df)
+        upsampling_train_df = self._data_balance(selected_train_df)
+        model = best_classifier(upsampling_train_df, tasks = self.tasks)
         pipline_info["classifier"] = model.get_name()
         with open(os.path.join(store_path, "pipline_info.json"), "w") as f:
             json.dump(pipline_info, f)
         os.makedirs(store_path+"/best_model", exist_ok=True)
         self._save_info(selected_train_df, selected_test_df, cv_train, cv_val, model, store_path+"/best_model")
         print("好耶跑完一个图像了")
+        # 大概也许可能改完了，还没调试
         return select_results, max_val_AUC
 
-    def _calculate_val_metric(self, cv_val_data):
+    def _calculate_val_metric(self, cv_val_data, feature):
         for i in range(1, 6):
             single_cv_val = cv_val_data[cv_val_data["group"] == i]
             if i == 1:
-                cv_metric = EstimatePrediction(single_cv_val["Pred"].values, single_cv_val["label"].values.astype(int),
+                cv_metric = EstimatePrediction(single_cv_val[feature+"_pred"].values, single_cv_val[feature].values.astype(int),
                                                "cv_val")
                 for key in cv_metric:
                     if isinstance(cv_metric[key], str):
                         cv_metric[key] = eval(cv_metric[key])
             else:
-                single_cv_metric = EstimatePrediction(single_cv_val["Pred"].values,
-                                                      single_cv_val["label"].values.astype(int),
+                single_cv_metric = EstimatePrediction(single_cv_val[feature+"_pred"].values,
+                                                      single_cv_val[feature].values.astype(int),
                                                       "cv_val")
                 for key in cv_metric:
                     if isinstance(single_cv_metric[key], str):
@@ -287,22 +307,32 @@ class Radiomics():
         return cv_metric
 
     def _save_info(self, selected_train_df, selected_test_df, cv_train_info, cv_val_info, model, store_path):
+
+        # parameter：挑选出的特征表，交叉验证集的结果，模型，保存地址
         model.save(store_path)
         metrics = {}
         cv_train_info.to_csv(os.path.join(store_path, "cv_train_prediction.csv"))
         cv_val_info.to_csv(os.path.join(store_path, "cv_val_prediction.csv"))
-        cv_metric = self._calculate_val_metric(cv_val_info)
         selected_train_df.to_csv(os.path.join(store_path, "selected_train_data.csv"))
         selected_test_df.to_csv(os.path.join(store_path, "selected_test_data.csv"))
-        train_metric, train_pred = self.save_prediction(selected_train_df, model, store_path, "train")
-        cutoff = eval(train_metric["train_Cutoff"])
-        test_metric, test_pred = self.save_prediction(selected_test_df, model, store_path, "test", cutoff)
-        draw_roc_list([train_pred, test_pred], [selected_train_df["label"].tolist(), selected_test_df["label"].tolist()],
-                      ["train", "test"], store_path, is_show=False)
-        metrics.update(train_metric)
-        metrics.update(cv_metric)
-        metrics.update(test_metric)
-        metric_df = pd.DataFrame.from_dict(metrics, orient='index', columns=['values'])
+        train_pred_df = selected_train_df.iloc[:, :self.tasks].copy()
+        test_pred_df = selected_test_df.iloc[:, :self.tasks].copy()
+        for feature in self.y_names:
+            metrics[feature] = dict()
+            cv_metric = self._calculate_val_metric(cv_val_info, feature)
+            train_metric, train_pred = self._calculate_metric(selected_train_df, model, "train", feature)
+            cutoff = eval(train_metric["train_Cutoff"])
+            test_metric, test_pred = self._calculate_metric(selected_test_df, model, "test", feature, cutoff)
+            draw_roc_list([train_pred, test_pred], [selected_train_df[feature].tolist(), selected_test_df[feature].tolist()],
+                        ["train", "test"], store_path, is_show=False, feature=feature)
+            metrics[feature].update(train_metric)
+            metrics[feature].update(cv_metric)
+            metrics[feature].update(test_metric)
+            train_pred_df.loc[:, feature+"_pred"] = train_pred
+            test_pred_df.loc[:, feature+"_pred"] = test_pred
+        train_pred_df.to_csv(store_path + "/train_prediction.csv")
+        test_pred_df.to_csv(store_path + "/test_prediction.csv")
+        metric_df = pd.DataFrame.from_dict(metrics, orient='columns')
         metric_df.to_csv(store_path + "/metric_info.csv")
 
     def get_selected_dataframe(self):
@@ -363,38 +393,6 @@ def combine_prediction(root, modals, store, best_dilation={}):
                 store_path = store_path + "+" +modal
                 os.makedirs(store_path, exist_ok=True)
                 new_df.to_csv(store_path+f"/{split}_numeric_feature.csv", index=False)
-
-
-def save_prediction(data_df, model, predict_store_path, key, cutoff):
-    # 这个用来预测和保存预测结果，返回指标的字典
-    label = data_df["label"].values.astype(int)
-    predict_columns = ['label', 'Pred']
-    prediction = model.predict_proba(data_df.values[:, 1:])[:, 1]
-    new_data = np.concatenate((label[:, np.newaxis], prediction[:, np.newaxis]), axis=1)
-    predict_df = pd.DataFrame(data=new_data, index=data_df.index, columns=predict_columns)
-    predict_df.to_csv(predict_store_path + f"/{key}_prediction.csv")
-    metrics = EstimatePrediction(prediction, label, key, cutoff)
-    return metrics, prediction
-
-def external_test(data_path, model_path, zscore_path=''):
-    test_df = pd.read_csv(data_path, index_col=0)
-    if zscore_path != "":
-        pass
-    features = list(pd.read_csv(model_path+"/selected_train_data.csv", index_col=0))
-    try:
-        new_df = test_df[features]
-    except:
-        new_df = test_df[[i.replace("prediction", "Pred") for i in features]]
-    if os.path.exists(os.path.join(model_path, "LR model.pickle")):
-        classifier = joblib.load(os.path.join(model_path, "LR model.pickle"))
-    else:
-        classifier = joblib.load(os.path.join(model_path, "SVM model.pickle"))
-    store_path = os.path.dirname(data_path)
-    new_df.to_csv(store_path+"/test_data.csv")
-    metrics, _ = save_prediction(new_df, classifier, store_path, "external")
-    metrics, _ = save_prediction(new_df, classifier, store_path, "external")
-    metric_df = pd.DataFrame.from_dict(metrics, orient='index', columns=['values'])
-    metric_df.to_csv(store_path+"/metrics.csv")
 
 
 

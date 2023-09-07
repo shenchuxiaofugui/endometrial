@@ -9,16 +9,15 @@ from scipy.stats import kruskal
 
 
 class FeatureSelectByRFE(object):
-    def __init__(self, n_features_to_select=20, classifier=SVC(kernel='linear')):
+    def __init__(self, n_features_to_select=20, classifier=SVC(kernel='linear'), task_num=1):
         self.n_features_to_select = n_features_to_select
         self.__classifier = classifier
         self._rank = None
+        self.task_num = task_num
         pass
 
-    def get_selected_feature_index(self, dataframe):
-        data = np.array(dataframe.values[:, 1:])
+    def get_selected_feature_index(self, data, label):
         data /= np.linalg.norm(data, ord=2, axis=0)
-        label = np.array(dataframe['label'].tolist())
 
         if data.shape[1] < self.n_features_to_select:
             print('RFE: The number of features {:d} in dataframe is smaller than the required number {:d}'.format(
@@ -33,15 +32,19 @@ class FeatureSelectByRFE(object):
         return feature_index.tolist()
 
     def run(self, dataframe, store_folder=''):
-        data = np.array(dataframe.values[:, 1:])
-        label = np.array(dataframe['label'].tolist())
-        feature_name = dataframe.columns.tolist()[1:]
-        selected_index = self.get_selected_feature_index(dataframe)
-
+        data = np.array(dataframe.values[:, self.task_num:])
+        label = dataframe['label'].values.astype(int)
+        feature_name = dataframe.columns.tolist()[self.task_num:]
+        selected_index = self.get_selected_feature_index(data, label)
         new_data = data[:, selected_index]
         new_feature_name = [feature_name[t] for t in selected_index]
-        new_feature_name.insert(0, 'label')
-        new_data = np.concatenate((label[..., np.newaxis], new_data), axis=1)
+        if self.task_num == 1:
+            labels = label[..., np.newaxis]
+            new_feature_name.insert(0, 'label')
+        else:
+            labels = dataframe.values[:, :self.task_num]
+            new_feature_name = list(dataframe.iloc[:, :self.task_num]) + new_feature_name
+        new_data = np.concatenate((labels, new_data), axis=1)
         new_dataframe = pd.DataFrame(data=new_data, index=dataframe.index, columns=new_feature_name)
         if store_folder != '':
             if not os.path.exists(store_folder):
@@ -55,10 +58,11 @@ class FeatureSelectByRFE(object):
 
 
 class FeatureSelectByANOVA(object):
-    def __init__(self, n_features_to_select=20):
+    def __init__(self, n_features_to_select=20, task_num=1):
         self.n_features_to_select = n_features_to_select
         self._f_value = np.array([])
         self._p_value = np.array([])
+        self.task_num = task_num
 
     def GetSelectedFeatureIndex(self, data, label):
         if data.shape[1] < self.n_features_to_select:
@@ -73,15 +77,20 @@ class FeatureSelectByANOVA(object):
         return feature_index.tolist(), f_value, p_value
 
     def run(self, dataframe, store_folder=''):
-        data = dataframe.values[:, 1:]
+        data = dataframe.values[:, self.task_num:]
         label = dataframe['label'].values
-        feature_name = dataframe.columns.tolist()[1:]
+        feature_name = dataframe.columns.tolist()[self.task_num:]
 
         selected_index, self._f_value, self._p_value = self.GetSelectedFeatureIndex(data, label)
         new_data = data[:, selected_index]
         new_feature_name = [feature_name[t] for t in selected_index]
-        new_feature_name.insert(0, 'label')
-        new_data = np.concatenate((label[..., np.newaxis], new_data), axis=1)
+        if self.task_num == 1:
+            labels = label[..., np.newaxis]
+            new_feature_name.insert(0, 'label')
+        else:
+            labels = dataframe.values[:, :self.task_num]
+            new_feature_name = list(dataframe.iloc[:, :self.task_num]) + new_feature_name
+        new_data = np.concatenate((labels, new_data), axis=1)
         new_dataframe = pd.DataFrame(data=new_data, index=dataframe.index, columns=new_feature_name)
         if store_folder != '':
             if not os.path.exists(store_folder):
@@ -96,10 +105,11 @@ class FeatureSelectByANOVA(object):
 
 
 class FeatureSelectByRelief(object):
-    def __init__(self, n_features_to_select=10, iter_ratio=1):
+    def __init__(self, n_features_to_select=10, iter_ratio=1, task_num=1):
         self.n_features_to_select = n_features_to_select
         self.__iter_radio = iter_ratio
         self._weight = None
+        self.task_num = task_num
 
     def __SortByValue(self, feature_score):
 
@@ -136,7 +146,7 @@ class FeatureSelectByRelief(object):
         return counter
 
     def __SortByRelief(self, dataframe):
-        data = np.array(dataframe.values[:, 1:])
+        data = np.array(dataframe.values[:, self.task_num:])
         label = dataframe['label'].values
 
         # initialization
@@ -218,15 +228,20 @@ class FeatureSelectByRelief(object):
         return text
 
     def run(self, dataframe, store_folder=''):
-        data = dataframe.values[:, 1:]
+        data = dataframe.values[:, self.task_num:]
         label = dataframe['label'].values
-        feature_name = dataframe.columns.tolist()[1:]
+        feature_name = dataframe.columns.tolist()[self.task_num:]
 
         selected_index = self.GetSelectedFeatureIndex(dataframe)
         new_data = data[:, selected_index]
         new_feature_name = [feature_name[t] for t in selected_index]
-        new_feature_name.insert(0, 'label')
-        new_data = np.concatenate((label[..., np.newaxis], new_data), axis=1)
+        if self.task_num == 1:
+            labels = label[..., np.newaxis]
+            new_feature_name.insert(0, 'label')
+        else:
+            labels = dataframe.values[:, :self.task_num]
+            new_feature_name = list(dataframe.iloc[:, :self.task_num]) + new_feature_name
+        new_data = np.concatenate((labels, new_data), axis=1)
         new_dataframe = pd.DataFrame(data=new_data, index=dataframe.index, columns=new_feature_name)
         if store_folder != '':
             if not os.path.exists(store_folder):
@@ -241,10 +256,11 @@ class FeatureSelectByRelief(object):
 
 
 class FeatureSelectByKruskalWallis(object):
-    def __init__(self, n_features_to_select=10):
+    def __init__(self, n_features_to_select=10, task_num=1):
         self.n_features_to_select = n_features_to_select
         self._f_value = np.array([])
         self._p_value = np.array([])
+        self.task_num = task_num
 
     def KruskalWallisAnalysis(self, array, label):
         args = [array[safe_mask(array, label == k)] for k in np.unique(label)]
@@ -256,7 +272,7 @@ class FeatureSelectByKruskalWallis(object):
         return np.array(f_list), np.array(p_list)
 
     def GetSelectedFeatureIndex(self, dataframe):
-        data = np.array(dataframe.values[:, 1:])
+        data = np.array(dataframe.values[:, self.task_num:])
         label = dataframe['label'].values
 
         if data.shape[1] <  self.n_features_to_select:
@@ -278,15 +294,20 @@ class FeatureSelectByKruskalWallis(object):
         return text
 
     def run(self, dataframe, store_folder=''):
-        data = dataframe.values[:, 1:]
+        data = dataframe.values[:, self.task_num:]
         label = dataframe['label'].values
-        feature_name = dataframe.columns.tolist()[1:]
+        feature_name = dataframe.columns.tolist()[self.task_num:]
 
         selected_index = self.GetSelectedFeatureIndex(dataframe)
         new_data = data[:, selected_index]
         new_feature_name = [feature_name[t] for t in selected_index]
-        new_feature_name.insert(0, 'label')
-        new_data = np.concatenate((label[..., np.newaxis], new_data), axis=1)
+        if self.task_num == 1:
+            labels = label[..., np.newaxis]
+            new_feature_name.insert(0, 'label')
+        else:
+            labels = dataframe.values[:, :self.task_num]
+            new_feature_name = list(dataframe.iloc[:, :self.task_num]) + new_feature_name
+        new_data = np.concatenate((labels, new_data), axis=1)
         new_dataframe = pd.DataFrame(data=new_data, index=dataframe.index, columns=new_feature_name)
         if store_folder != '':
             if not os.path.exists(store_folder):

@@ -13,48 +13,45 @@ from sklearn.multioutput import MultiOutputClassifier
 
 
 class Classifier:
-    def __init__(self):
-        self.__model = None
-        self._x = np.array([])
-        self._y = np.array([])
-
-    def set_model(self, model, tasks=1):
+    def __init__(self, tasks, dataframe, model):
+        self.dataframe = dataframe
+        self._x = dataframe.iloc[:, tasks:]
+        self._y = dataframe.iloc[:, :tasks].values
+        if tasks == 1:
+             self._y = np.ravel(self._y)
+        self.tasks = tasks
+        self.y_name = list(dataframe)[:tasks]
         self.__model = model
-        if tasks != 1:
+        if self.tasks != 1:
+            self.__model = MultiOutputClassifier(self.__model)
+        self.fit()
+
+    def set_model(self, model):
+        self.__model = model
+        if self.tasks != 1:
             self.__model = MultiOutputClassifier(self.__model)
 
     def get_model(self):
-        return self.__model
+        if self.tasks == 1:
+            return [self.__model]
+        else:
+            return [i for i in self.__model.estimators_]
 
     def predict(self, x, is_probability=True):
         if is_probability:
-            return self.__model.predict_proba(x)
+            if self.tasks == 1:
+                return {"label_pred": self.__model.predict_proba(x)[:, 1]}
+            else:
+                prediction = self.__model.predict_proba(x)
+                # 做成字典的形式 
+                d = dict()
+                for task, pred in zip(self.y_name, prediction):
+                    d[task+"_pred"] = pred[:,1]
+                return d
+
         else:
             return self.__model.Predict(x)
-
-    def fit(self):
-        self.__model.fit(self._x, self._y)
-
-
-class SVM(Classifier):
-    def __init__(self, dataframe, tasks=1, **kwargs):
-        super(SVM, self).__init__()
-        if 'kernel' not in kwargs.keys():
-            kwargs['kernel'] = 'linear'
-        if 'C' not in kwargs.keys():
-            kwargs['C'] = 1.0
-        if 'probability' not in kwargs.keys():
-            kwargs['probability'] = True
-        if tasks == 1:
-            self._x = dataframe.values[:, 1:]
-            self._y = np.array(dataframe['label'].tolist())
-        else:
-            self._x = dataframe.values[:, tasks:]
-            self._y = dataframe.values[:, :tasks]
-        super(SVM, self).set_model(SVC(random_state=0, probability=True), tasks=tasks)
-        self.dataframe = dataframe
-        self.fit()
-
+        
     def save(self, store_folder):
         if not os.path.exists(store_folder):
             os.makedirs(store_folder)
@@ -62,77 +59,62 @@ class SVM(Classifier):
             print('The store function of SVM must be a folder path')
             return
         if os.path.isdir(store_folder):
-            store_path = os.path.join(store_folder, 'SVM model.pickle')
+            store_path = os.path.join(store_folder, f'{self.get_name()} model.pickle')
             with open(store_path, 'wb') as f:
-                pickle.dump(self.get_model(), f)
+                d = dict()
+                for key, model in zip(self.y_name, self.get_model()):
+                    d[key] = model
+                pickle.dump(d, f)
 
         # Save the coefficients
         try:
-            coef_path = os.path.join(store_folder, 'SVM_coef.csv')
-            df = pd.DataFrame(data=np.transpose(self.get_model().coef_),
-                              index=self.dataframe.columns.tolist()[1:], columns=['Coef'])
+            coef_path = os.path.join(store_folder, f'{self.get_name()}_coef.csv')
+            flag = True
+            for feature, model in zip(self.y_name, self.get_model()):
+                if flag:
+                    df = pd.DataFrame(data=np.transpose(model.coef_),
+                                    index=self.dataframe.columns.tolist()[self.tasks:], columns=[feature+'_coef'])
+                    df.loc["intercept", feature+'_coef'] = model.intercept_.reshape(1, 1)
+                    flag = False
+                else:
+                    new_df = pd.DataFrame(data=np.transpose(model.coef_),
+                                    index=self.dataframe.columns.tolist()[self.tasks:], columns=[feature+'_coef'])
+                    new_df.loc["intercept", feature+'_coef'] = model.intercept_.reshape(1, 1)
+                    df = df.join(new_df)
             df.to_csv(coef_path)
         except Exception as e:
-            content = 'SVM with specific kernel does not give coef: '
-            print('{} \n{}'.format(content, e.__str__()))
+            content = f'{self.get_name()} with specific kernel does not give intercept: '
+            print('{} \n{}'.format(content, e.__str__()))    
 
-        # Save the intercept_
-        try:
-            intercept_path = os.path.join(store_folder, 'SVM_intercept.csv')
-            intercept_df = pd.DataFrame(data=self.get_model().intercept_.reshape(1, 1),
-                                        index=['intercept'], columns=['value'])
-            intercept_df.to_csv(intercept_path)
-        except Exception as e:
-            content = 'SVM with specific kernel does not give intercept: '
-            print('{} \n{}'.format(content, e.__str__()))
+    def fit(self):
+        self.__model.fit(self._x, self._y)
+
+
+class SVM(Classifier):
+    def __init__(self, dataframe, tasks=1, **kwargs):
+        if 'kernel' not in kwargs.keys():
+            kwargs['kernel'] = 'linear'
+        if 'C' not in kwargs.keys():
+            kwargs['C'] = 1.0
+        if 'probability' not in kwargs.keys():
+            kwargs['probability'] = True
+        super(SVM, self).__init__(tasks, dataframe, (SVC(random_state=0, **kwargs)))
+
 
     def get_name(self):
         return "SVM"
 
 
 class LR(Classifier):
-    def __init__(self, dataframe, **kwargs):
-        super(LR, self).__init__()
+    def __init__(self, dataframe, tasks=1, **kwargs):
         if 'solver' in kwargs.keys():
-            super(LR, self).set_model(LogisticRegression(penalty='none', **kwargs))
+            LR_model = LogisticRegression(**kwargs)
         else:
-            super(LR, self).set_model(LogisticRegression(penalty='none', solver='saga', tol=0.01,
-                                                         random_state=0, **kwargs))
+            LR_model = LogisticRegression(solver='saga', tol=0.01,
+                                                         random_state=0, **kwargs)
         self.name = "LR"
-        self._x = np.array(dataframe.values[:, 1:])
-        self._y = np.array(dataframe['label'].tolist())
-        self.dataframe = dataframe
-        self.fit()
+        super(LR, self).__init__(tasks, dataframe, LR_model)
 
-    def save(self, store_folder):
-        if not os.path.exists(store_folder):
-            os.makedirs(store_folder)
-        if not os.path.isdir(store_folder):
-            print('The store function of LR must be a folder path')
-            return
-        if os.path.isdir(store_folder):
-            store_path = os.path.join(store_folder, 'LR model.pickle')
-            with open(store_path, 'wb') as f:
-                pickle.dump(self.get_model(), f)
-
-        # Save the coefficients
-        try:
-            coef_path = os.path.join(store_folder, 'LR_coef.csv')
-            df = pd.DataFrame(data=np.transpose(self.get_model().coef_),
-                              index=self.dataframe.columns.tolist()[1:], columns=['Coef'])
-            df.to_csv(coef_path)
-        except Exception as e:
-            content = 'LR can not load coef: '
-            print('{} \n{}'.format(content, e.__str__()))
-
-        try:
-            intercept_path = os.path.join(store_folder, 'LR_intercept.csv')
-            intercept_df = pd.DataFrame(data=self.get_model().intercept_.reshape(1, 1),
-                                        index=['intercept'], columns=['value'])
-            intercept_df.to_csv(intercept_path)
-        except Exception as e:
-            content = 'LR can not load intercept: '
-            print('{} \n{}'.format(content, e.__str__()))
 
     def get_name(self):
         return "LR"

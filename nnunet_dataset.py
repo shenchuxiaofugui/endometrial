@@ -4,7 +4,7 @@ import tarfile
 import os
 import pandas as pd
 import SimpleITK as sitk
-
+import json
 
 modal = "T2"
 store_path = "/homes/syli/dataset/nnUNet/data/nnUNet_raw"
@@ -22,11 +22,17 @@ os.makedirs(store_path+"/imagesTr", exist_ok=True)
 os.makedirs(store_path+"/labelsTr", exist_ok=True)
 os.makedirs(store_path+"/imagesTs", exist_ok=True)
 os.makedirs(store_path+"/labelsTs", exist_ok=True)
+
+data = []
 for i, case in enumerate(cases):
-    if case.name in train_list:
-        make_targz_one_by_one(store_path, str(case), i, "Tr")
-        continue
-    elif case.name in test_list:
-        make_targz_one_by_one(store_path, str(case), i, "Ts")
-    else:
-        print(case.name)
+    data.append(case.name)
+    # if case.name in train_list:
+
+    #     #make_targz_one_by_one(store_path, str(case), i, "Tr")
+    #     continue
+    # elif case.name in test_list:
+    #     make_targz_one_by_one(store_path, str(case), i, "Ts")
+    # else:
+    #     print(case.name)
+with open("mapping.json", "w") as file:
+    json.dump(data, file)
