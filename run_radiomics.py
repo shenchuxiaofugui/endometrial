@@ -69,8 +69,8 @@ if __name__ == "__main__":
     #
     # merge_label_feature(root+"/shenzhen.xlsx", root+"/shenzhen ROI seg/dataframe", ["DWI", "T1CE", "T2"], 
     #                     "LNM", root+"/shenzhen ROI seg/LNM/liunei")
-    for modal in ["T1CE"]:
-        run_dilation(root, modal, 2, 8, 11)
+    for modal in ["T2"]:
+        run_dilation(root, modal, 2, 2, 11)
         # a = Radiomics([FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief],
         #             [SVM, LR], savepath=root, task_num=1, max_feature_num=10)
         # a.load_csv(join(root, "train_numeric_feature.csv"), join(root, "test_numeric_feature.csv"))
