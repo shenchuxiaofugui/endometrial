@@ -42,7 +42,7 @@ def set_new_dataframe(dataframe, case_index):
 # 输入两组数据df，计算所有P-value
 def p_test(train_df, test_df, alpha=1e-3):
     assert train_df.columns.tolist() == test_df.columns.tolist(), 'train and test feature mismatch'
-    features = train_df.columns.tolist()[2:]
+    features = train_df.columns.tolist()[3:]
     p_list = []
     distribute = []
     for feature in features:
@@ -93,9 +93,6 @@ def main_run(excel_path, output_path='', repeat_times=50):
     # excel_path = r'\\mega\syli\dataset\Primary and metastatic\inf.csv'
     #df = pd.read_excel(excel_path, sheet_name='Sheet1')
     df = pd.read_csv(excel_path)
-    a = dict(Counter(df["CaseName"]))
-    b = [key for key, values in a.items() if values > 1]
-    assert len(b) == 0, b
     # output_path = r'C:\Users\handsome\Desktop'
     # output_train_df, output_test_df = data_separate_random(df, test_data_percentage=0.13)
 
@@ -142,4 +139,7 @@ def main_run(excel_path, output_path='', repeat_times=50):
         print('-------------------------------------------')
 
     return output_train_df.iloc[:, :2], output_test_df.iloc[:, :2]
+
+if __name__ == "__main__":
+    main_run("/homes/syli/dataset/LVSI_LNM/clinical_info.csv", "/homes/syli/dataset/LVSI_LNM", 200)
 

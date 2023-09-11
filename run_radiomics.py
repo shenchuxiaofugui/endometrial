@@ -1,8 +1,9 @@
 import numpy as np
-from atuo_radiomics.auto_run import Radiomics, external_test
+from atuo_radiomics.auto_run import Radiomics
 from atuo_radiomics.Classifier import LR, SVM
 from atuo_radiomics.FeatureSelector import FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief
 import os
+join = os.path.join
 from pathlib import Path
 import shutil
 import pandas as pd
@@ -11,10 +12,11 @@ LVSI_dilation = {"DWI": 5, "T1CE": 6, "T2": 3}
 LNM_dilation = {"DWI": 9, "T1CE": 9, "T2": 7}
 
 
-def run_dilation(root, modal):
-    for i in range(1, 11):
+def run_dilation(root, modal, tasks=1, min_i=1, max_i=11):
+    for i in range(min_i, max_i):
         path = os.path.join(root, modal, f"dilation_{i}")
-        a = Radiomics([FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief], [LR, SVM], path, max_feature_num=8)
+        a = Radiomics([FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief],
+                     [LR, SVM], path, max_feature_num=10, task_num = tasks, has_shape=False)
         a.load_csv(os.path.join(path, "train_numeric_feature.csv"), os.path.join(path, "test_numeric_feature.csv"))
         a.run()
 
@@ -63,14 +65,17 @@ def merge_label_feature(clinical_path, feature_path, modals, key, store_path):
 
 
 if __name__ == "__main__":
-    root = "/homes/syli/dataset/EC_all/outside"
-    #run_dilation(root, "DWI")
-    merge_label_feature(root+"/shenzhen.xlsx", root+"/shenzhen ROI seg/dataframe", ["DWI", "T1CE", "T2"], 
-                        "LNM", root+"/shenzhen ROI seg/LNM/liunei")
-    # a = Radiomics([FeatureSelectByANOVA], [LR, SVM], root, max_feature_num=3) #, FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief
-    # a.load_csv(os.path.join(root, "train_numeric_feature.csv"), os.path.join(root, "test_numeric_feature.csv"), False)
-    # a.predict_save(a.train_data, a.test_data, root, True)
-    # a.run()
+    root = "/homes/syli/dataset/LVSI_LNM/multi_task/liuzhou"
+    #
+    # merge_label_feature(root+"/shenzhen.xlsx", root+"/shenzhen ROI seg/dataframe", ["DWI", "T1CE", "T2"], 
+    #                     "LNM", root+"/shenzhen ROI seg/LNM/liunei")
+    for modal in ["T1CE"]:
+        run_dilation(root, modal, 2, 8, 11)
+        # a = Radiomics([FeatureSelectByRFE, FeatureSelectByANOVA, FeatureSelectByKruskalWallis, FeatureSelectByRelief],
+        #             [SVM, LR], savepath=root, task_num=1, max_feature_num=10)
+        # a.load_csv(join(root, "train_numeric_feature.csv"), join(root, "test_numeric_feature.csv"))
+        # #a.predict_save(a.train_data, a.test_data, a.savepath, True)
+        # a.run()
     # combine_prediction(root, ["T1", "T2", "T1CE", "ADC", "b1000"], root)
     # external_test()
 

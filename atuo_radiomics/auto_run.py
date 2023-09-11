@@ -34,7 +34,7 @@ def split_and_merge(feature_root, modals, clinical_path, store_path):
 
 
 class Radiomics():
-    def __init__(self, selectors, classifiers, savepath="", max_feature_num=10, task_num=1, random_seed=1):
+    def __init__(self, selectors, classifiers, savepath="", max_feature_num=10, task_num=1, random_seed=1, has_shape=True):
         self.max_feature_num = max_feature_num
         self.selectors = selectors
         self.classifiers = classifiers
@@ -48,6 +48,7 @@ class Radiomics():
         self.combine_features = ["label"]
         self.image_types = ['original', 'log-sigma']
         self.tasks = task_num
+        self.has_shape = has_shape
 
     def load_csv(self, train_path, test_path, pcc_zscore=True):
         train_data = pd.read_csv(train_path, index_col=0)
@@ -91,7 +92,7 @@ class Radiomics():
         total_train = [train_first_df, train_texture_df, train_shape_df]
         total_test = [test_first_df, test_texture_df, test_shape_df]
         candidate_feature = deepcopy(self.y_names)
-        if image_type == "original":
+        if image_type == "original" and self.has_shape:
             j = 3
         else:
             j = 2
